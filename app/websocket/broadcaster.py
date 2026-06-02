@@ -37,7 +37,7 @@ async def publish_event(
 
     settings = get_settings()
     client = aioredis.from_url(
-        settings.REDIS_URL.get_secret_value(),  # type: ignore[no-untyped-call]
+        settings.REDIS_URL.get_secret_value(),
         encoding="utf-8",
         decode_responses=True,
     )
@@ -77,7 +77,7 @@ async def redis_subscriber_loop() -> None:
         client = None
         pubsub = None
         try:
-            client = aioredis.from_url(  # type: ignore[no-untyped-call]
+            client = aioredis.from_url(
                 settings.REDIS_URL.get_secret_value(),
                 encoding="utf-8",
                 decode_responses=True,

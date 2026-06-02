@@ -40,7 +40,7 @@ async def invalidate_workflow_cache(business_id: uuid.UUID | str, trigger_type: 
         import redis.asyncio as aioredis
 
         settings = get_settings()
-        client = aioredis.from_url(  # type: ignore[no-untyped-call]
+        client = aioredis.from_url(
             settings.REDIS_URL.get_secret_value(),
             encoding="utf-8",
             decode_responses=True,
@@ -66,7 +66,7 @@ async def get_active_workflows_cached(
     import redis.asyncio as aioredis
 
     settings = get_settings()
-    client = aioredis.from_url(  # type: ignore[no-untyped-call]
+    client = aioredis.from_url(
         settings.REDIS_URL.get_secret_value(),
         encoding="utf-8",
         decode_responses=True,
