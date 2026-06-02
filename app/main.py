@@ -11,7 +11,7 @@ via `app/core/registry.py` — not here.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -121,10 +121,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await stop_broadcaster()
     await engine.dispose()
-    try:
+    with suppress(RuntimeError):
         await redis_client.aclose()
-    except RuntimeError:
-        pass
     logger.info("Shutdown complete.")
 
 
