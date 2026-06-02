@@ -16,13 +16,16 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
 from app.db.base import Base
-from app.modules.ai.models import AILog  # noqa: F401
+from app.modules.ai.models import AILog, AIMemory, PromptTemplate  # noqa: F401
 from app.modules.audit.models import AuditLog  # noqa: F401
 
 # Import ALL models so Alembic sees them for autogeneration
 from app.modules.auth.models import User  # noqa: F401
+from app.modules.billing.models import Invoice, Subscription  # noqa: F401
 from app.modules.businesses.models import Business  # noqa: F401
 from app.modules.customers.models import Customer  # noqa: F401
+from app.modules.feature_flags.models import BusinessFeatureFlag, FeatureFlag, SubscriptionTier  # noqa: F401
+from app.modules.metering.models import UsageMeter  # noqa: F401
 from app.modules.notifications.models import Notification  # noqa: F401
 from app.modules.orders.models import Order  # noqa: F401
 from app.modules.payments.models import Payment  # noqa: F401

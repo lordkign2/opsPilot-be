@@ -7,16 +7,19 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import AsyncGenerator
 from typing import Any
 
-import httpx
+import google.generativeai as genai
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.modules.ai.models import AILog
+from app.modules.ai.rag import retrieve_relevant_context, store_memory
 from app.modules.ai.repository import AILogRepository
 from app.modules.analytics.service import AnalyticsService
 from app.modules.customers.repository import CustomerRepository
+from app.modules.metering.service import MeteringService
 from app.modules.orders.repository import OrderRepository
 from app.modules.payments.repository import PaymentRepository
 
@@ -31,45 +34,117 @@ class AIService:
         self.customer_repo = CustomerRepository(db)
         self.order_repo = OrderRepository(db)
         self.payment_repo = PaymentRepository(db)
+        self.payment_repo = PaymentRepository(db)
+        self.metering_service = MeteringService(db)
         self.settings = get_settings()
 
-    async def _call_openai(self, prompt: str, system_instruction: str) -> tuple[str, int]:
-        """Utility method to invoke the OpenAI chat completion API using httpx."""
-        api_key = self.settings.OPENAI_API_KEY
+    async def _call_gemini(
+        self, prompt: str, system_instruction: str, model_name: str = "gemini-1.5-flash"
+    ) -> tuple[str, int]:
+        """Utility method to invoke the Gemini chat completion API."""
+        api_key = self.settings.GEMINI_API_KEY
         if not api_key:
-            raise ValueError("OpenAI API key is not configured.")
+            raise ValueError("GEMINI_API_KEY is not configured.")
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        genai.configure(api_key=api_key.get_secret_value())  # type: ignore
+        model = genai.GenerativeModel(model_name=model_name, system_instruction=system_instruction)  # type: ignore
+
+        try:
+            response = await model.generate_content_async(prompt)
+            # Estimate tokens roughly or use usage metadata if available
+            tokens = response.usage_metadata.total_token_count if hasattr(response, "usage_metadata") else 0
+            return response.text, tokens
+        except Exception as e:
+            logger.error("Exception occurred during Gemini communication: %s", str(e))
+            raise RuntimeError(f"Gemini connection error: {str(e)}") from e
+
+    async def stream_chat_with_assistant(self, business_id: uuid.UUID, message: str) -> AsyncGenerator[str, None]:
+        """
+        Interact with the operations assistant and stream the response
+        Interact with the operations assistant and stream the response
+        using the Vercel AI SDK Data Stream Protocol format.
+        """
+        # Pre-check limits
+        await self.metering_service.check_usage_limit(business_id, "ai_tokens", 100)
+
+        # 1. RAG Context Retrieval
+        memories = await retrieve_relevant_context(self.db, message, business_id=str(business_id))
+        rag_context = "\n".join([f"- {m.content}" for m in memories])
+
+        overview = await self.analytics_service.get_overview(business_id)
+
+        system_instruction = (
+            "You are Antigravity, the OpsPilot AI Operations Assistant for SMEs. You have access to real-time "
+            "business metrics. Keep answers concise, highly operational, and professional.\n"
+            f"Active Business Workspace Metrics:\n"
+            f"- Total Revenue: ₦{overview['total_revenue']:,.2f}\n"
+            f"- Total Customers: {overview['total_customers']}\n"
+            f"- Total Orders: {overview['total_orders']}\n"
+            f"- Order Completion Rate: {overview['order_conversion_rate']:.1f}%\n\n"
+            f"Relevant Historical Context (RAG):\n{rag_context}"
+        )
+
+        prompt = f"User Message: {message}"
+
+        if self.settings.GEMINI_API_KEY:
             try:
-                response = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "gpt-4o-mini",
-                        "messages": [
-                            {"role": "system", "content": system_instruction},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.7,
-                    },
-                )
-                if response.status_code != 200:
-                    logger.error("OpenAI API error: %s - %s", response.status_code, response.text)
-                    raise RuntimeError(f"OpenAI API call failed: {response.text}")
+                genai.configure(api_key=self.settings.GEMINI_API_KEY.get_secret_value())  # type: ignore
+                model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=system_instruction)  # type: ignore
 
-                res_json = response.json()
-                content = res_json["choices"][0]["message"]["content"]
-                tokens = res_json.get("usage", {}).get("total_tokens", 0)
-                return content, tokens
+                response = await model.generate_content_async(prompt, stream=True)
+                full_text = ""
+
+                async for chunk in response:
+                    text_chunk = chunk.text
+                    full_text += text_chunk
+                    # Yield Vercel AI SDK Data Stream Protocol formatted string
+                    yield f"0:{json.dumps(text_chunk)}\n"
+
+                # Log the complete interaction asynchronously (or synchronously after loop)
+                await self.repo.create(
+                    AILog(
+                        event_type="chat_stream",
+                        prompt=prompt,
+                        response=full_text,
+                        tokens_used=0,
+                        business_id=business_id,
+                    )
+                )
+                await self.db.commit()
+
+                # Store the user's message as a memory if it seems important (simple heuristic or always)
+                await store_memory(self.db, context_key="chat_history", content=message, business_id=str(business_id))
+
+                # Increment Usage Meter
+                # Use a rough estimate of tokens for streaming, or extract it if the streaming api supports it
+                estimated_tokens = len(prompt.split()) + len(full_text.split()) * 1.5
+                await self.metering_service.increment_usage(business_id, "ai_tokens", int(estimated_tokens))
+
+                return
             except Exception as e:
-                logger.error("Exception occurred during OpenAI communication: %s", str(e))
-                raise RuntimeError(f"OpenAI connection error: {str(e)}") from e
+                logger.warning("Failing over to mock AI streaming due to Gemini failure: %s", str(e))
+
+        # Mock Fallback (Vercel Format)
+        reply = "Hello! I am your OpsPilot assistant. This is a mock fallback response."
+
+        await self.repo.create(
+            AILog(
+                event_type="chat_stream",
+                prompt=prompt,
+                response=reply,
+                tokens_used=0,
+                business_id=business_id,
+            )
+        )
+        await self.db.commit()
+
+        yield f"0:{json.dumps(reply)}\n"
 
     async def chat_with_assistant(self, business_id: uuid.UUID, message: str) -> str:
         """Interact sessionless with the operations assistant."""
+        # Pre-check limits
+        await self.metering_service.check_usage_limit(business_id, "ai_tokens", 100)
+
         # 1. Gather context
         overview = await self.analytics_service.get_overview(business_id)
 
@@ -85,10 +160,10 @@ class AIService:
 
         prompt = f"User Message: {message}"
 
-        # 2. Try OpenAI API first, fallback to mock if key is missing or calls fail
-        if self.settings.OPENAI_API_KEY:
+        # 2. Try Gemini API first, fallback to mock if key is missing or calls fail
+        if self.settings.GEMINI_API_KEY:
             try:
-                reply, tokens = await self._call_openai(prompt, system_instruction)
+                reply, tokens = await self._call_gemini(prompt, system_instruction)
                 await self.repo.create(
                     AILog(
                         event_type="chat",
@@ -99,9 +174,13 @@ class AIService:
                     )
                 )
                 await self.db.commit()
+
+                # Increment Usage Meter
+                await self.metering_service.increment_usage(business_id, "ai_tokens", tokens)
+
                 return reply
             except Exception as e:
-                logger.warning("Failing over to mock AI response due to OpenAI failure: %s", str(e))
+                logger.warning("Failing over to mock AI response due to Gemini failure: %s", str(e))
 
         # Mock Fallback (extremely detailed and context-aware)
         reply = (
@@ -125,6 +204,9 @@ class AIService:
 
     async def generate_business_summary(self, business_id: uuid.UUID, timeframe: str) -> str:
         """Create a professional business activity summary."""
+        # Pre-check limits
+        await self.metering_service.check_usage_limit(business_id, "ai_tokens", 500)
+
         overview = await self.analytics_service.get_overview(business_id)
         dist = await self.analytics_service.get_order_distribution(business_id)
 
@@ -140,9 +222,10 @@ class AIService:
             f"Include sections for 'Key Highlights', 'Operations Assessment', and 'Strategic Recommendations'."
         )
 
-        if self.settings.OPENAI_API_KEY:
+        if self.settings.GEMINI_API_KEY:
             try:
-                reply, tokens = await self._call_openai(prompt, system_instruction)
+                # Use a more advanced model for complex reports (routing example)
+                reply, tokens = await self._call_gemini(prompt, system_instruction, model_name="gemini-1.5-pro")
                 await self.repo.create(
                     AILog(
                         event_type="summary",
@@ -153,6 +236,8 @@ class AIService:
                     )
                 )
                 await self.db.commit()
+
+                await self.metering_service.increment_usage(business_id, "ai_tokens", tokens)
                 return reply
             except Exception as e:
                 logger.warning("Failing over to mock business summary: %s", str(e))
@@ -187,6 +272,9 @@ class AIService:
 
     async def generate_recommendations(self, business_id: uuid.UUID) -> list[dict[str, Any]]:
         """Detect operational anomalies and produce high-impact suggestions."""
+        # Pre-check limits
+        await self.metering_service.check_usage_limit(business_id, "ai_tokens", 300)
+
         # Query orders and customers to formulate context
         overview = await self.analytics_service.get_overview(business_id)
 
@@ -200,26 +288,31 @@ class AIService:
             f"Ensure fields exactly match the requirements."
         )
 
-        if self.settings.OPENAI_API_KEY:
+        if self.settings.GEMINI_API_KEY:
             try:
-                reply, tokens = await self._call_openai(prompt, system_instruction)
+                # Use standard flash model for quick JSON structured outputs
+                reply, tokens = await self._call_gemini(prompt, system_instruction)
                 try:
-                    recs = json.loads(reply)
+                    # Strip markdown blocks if any
+                    clean_reply = reply.strip().removeprefix("```json").removesuffix("```").strip()
+                    recs = json.loads(clean_reply)
                     if isinstance(recs, list):
                         await self.repo.create(
                             AILog(
                                 event_type="recommendations",
                                 prompt=prompt,
-                                response=reply,
+                                response=clean_reply,
                                 tokens_used=tokens,
                                 business_id=business_id,
                             )
                         )
                         await self.db.commit()
+
+                        await self.metering_service.increment_usage(business_id, "ai_tokens", tokens)
                         return recs
                 except Exception:
                     logger.error(
-                        "Failed to parse OpenAI recommendations reply into JSON: %s",
+                        "Failed to parse Gemini recommendations reply into JSON: %s",
                         reply,
                     )
             except Exception as e:
@@ -264,6 +357,9 @@ class AIService:
 
     async def generate_customer_insights(self, business_id: uuid.UUID, customer_id: uuid.UUID) -> str:
         """Create highly contextual behavior insights for a specific customer."""
+        # Pre-check limits
+        await self.metering_service.check_usage_limit(business_id, "ai_tokens", 300)
+
         customer = await self.customer_repo.get_one_by(id=customer_id, business_id=business_id)
         if not customer:
             raise ValueError("Customer not found or access is unauthorized.")
@@ -294,9 +390,9 @@ class AIService:
             f"Notes: {customer.notes or 'None'}"
         )
 
-        if self.settings.OPENAI_API_KEY:
+        if self.settings.GEMINI_API_KEY:
             try:
-                reply, tokens = await self._call_openai(prompt, system_instruction)
+                reply, tokens = await self._call_gemini(prompt, system_instruction, model_name="gemini-1.5-pro")
                 await self.repo.create(
                     AILog(
                         event_type="customer_insights",
@@ -307,6 +403,8 @@ class AIService:
                     )
                 )
                 await self.db.commit()
+
+                await self.metering_service.increment_usage(business_id, "ai_tokens", tokens)
                 return reply
             except Exception as e:
                 logger.warning("Failing over to mock customer insights: %s", str(e))

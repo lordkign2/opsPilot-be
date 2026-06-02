@@ -43,10 +43,10 @@ async def publish_event(
     )
     try:
         message = {
-            "business_id": str(business_id),
+            "business_id": business_id,
             "event_type": event_type,
             "payload": payload,
-            "user_id": str(user_id) if user_id else None,
+            "user_id": user_id,
         }
         await client.publish(REDIS_CHANNEL, json.dumps(message))
         logger.debug("Published event '%s' to Redis channel for business %s", event_type, business_id)

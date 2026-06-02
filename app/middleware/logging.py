@@ -3,6 +3,7 @@ OpsPilot — Request Logging Middleware.
 
 Logs every request/response with method, path, status code,
 and duration. Uses the structured logger with request ID.
+In production, emits structured JSON fields for Loki/Grafana ingestion.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start_time = time.perf_counter()
 
         # Skip health check noise
-        if request.url.path in ("/health", "/healthz", "/"):
+        if request.url.path in ("/health", "/healthz", "/", "/metrics"):
             return await call_next(request)
 
         logger.info(
@@ -44,6 +45,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             request.url.path,
             response.status_code,
             duration_ms,
+            extra={
+                "http_method": request.method,
+                "http_path": request.url.path,
+                "http_status": response.status_code,
+                "duration_ms": round(duration_ms, 2),
+            },
         )
 
         return response

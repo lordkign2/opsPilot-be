@@ -107,7 +107,7 @@ async def test_whatsapp_conversational_ordering_and_ai(
     assert response.json()["success"] is True
 
     # Yield to let the asynchronous out-of-band task finalize its db commits
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1.5)
 
     # 1. Assert that the customer was automatically created/onboarded scoping the phone number
     stmt_customer = select(Customer).where(Customer.phone == sender_phone)

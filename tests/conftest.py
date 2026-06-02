@@ -21,6 +21,11 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.modules.billing.models import Invoice, Subscription  # noqa
+
+# Import all models to ensure they are registered with Base.metadata before create_all
+from app.modules.feature_flags.models import BusinessFeatureFlag, FeatureFlag, SubscriptionTier  # noqa
+from app.modules.metering.models import UsageMeter  # noqa
 
 settings = get_settings()
 
@@ -47,7 +52,10 @@ async def test_engine():
 
     async_session_factory.configure(bind=engine)
 
+    from sqlalchemy import text
+
     async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
         await conn.run_sync(Base.metadata.create_all)
 
     yield engine
@@ -96,6 +104,11 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
                 return None
 
         yield MockRedis()
+
+    from fastapi_cache import FastAPICache
+    from fastapi_cache.backends.inmemory import InMemoryBackend
+
+    FastAPICache.init(InMemoryBackend())
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_redis] = override_get_redis

@@ -5,17 +5,21 @@ OpsPilot — Orders Module: Routes.
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
-from app.modules.auth.dependencies import CurrentBusinessId
+from app.core.permissions import Permission
+from app.modules.auth.dependencies import CurrentBusinessId, require_permission
 from app.modules.orders.dependencies import OrderServiceDep
 from app.modules.orders.schemas import OrderCreate, OrderResponse, OrderStatusUpdate
 from app.shared.response import paginated_response, success_response
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
+_orders_read = [Depends(require_permission(Permission.ORDERS_READ))]
+_orders_write = [Depends(require_permission(Permission.ORDERS_WRITE))]
 
-@router.post("/", response_model=None, status_code=201)
+
+@router.post("/", response_model=None, status_code=201, dependencies=_orders_write)
 async def create_order(
     payload: OrderCreate,
     business_id: CurrentBusinessId,
@@ -29,7 +33,7 @@ async def create_order(
     )
 
 
-@router.get("/", response_model=None)
+@router.get("/", response_model=None, dependencies=_orders_read)
 async def list_orders(
     business_id: CurrentBusinessId,
     order_service: OrderServiceDep,
@@ -45,7 +49,7 @@ async def list_orders(
     return paginated_response(data=data, total=total, page=page, per_page=per_page)
 
 
-@router.get("/{order_id}", response_model=None)
+@router.get("/{order_id}", response_model=None, dependencies=_orders_read)
 async def get_order(
     order_id: uuid.UUID,
     business_id: CurrentBusinessId,
@@ -56,7 +60,7 @@ async def get_order(
     return success_response(data=OrderResponse.model_validate(order).model_dump(mode="json"))
 
 
-@router.patch("/{order_id}/status", response_model=None)
+@router.patch("/{order_id}/status", response_model=None, dependencies=_orders_write)
 async def update_order_status(
     order_id: uuid.UUID,
     payload: OrderStatusUpdate,

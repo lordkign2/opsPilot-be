@@ -68,8 +68,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # ── OpenAI (future) ──────────────────────────────────────
+    # ── AI API Keys ──────────────────────────────────────
     OPENAI_API_KEY: str | None = None
+    GEMINI_API_KEY: SecretStr | None = None
 
     # ── Paystack (future) ────────────────────────────────────
     PAYSTACK_SECRET_KEY: SecretStr | None = None
@@ -84,6 +85,17 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: str | None = None
     TWILIO_AUTH_TOKEN: SecretStr | None = None
     EXPO_ACCESS_TOKEN: SecretStr | None = None
+
+    # ── Observability (Phase 7) ──────────────────────────────────
+    SENTRY_DSN: SecretStr | None = None
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+    SENTRY_ENVIRONMENT: str | None = None
+    PROMETHEUS_ENABLED: bool = True
+    METRICS_SECRET: SecretStr | None = None
+
+    # ── Security (Phase 8) ────────────────────────────────────
+    # 32-byte hex-encoded AES-256 key. If unset, derived from JWT_SECRET_KEY.
+    ENCRYPTION_KEY: SecretStr | None = None
 
     # ── Super-Admin Seeding Credentials ─────────────────────
     SUPER_ADMIN_EMAIL: str = "lordkign1@gmail.com"

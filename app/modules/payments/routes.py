@@ -4,9 +4,10 @@ OpsPilot — Payments Module: Routes.
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from app.modules.auth.dependencies import CurrentBusinessId
+from app.core.permissions import Permission
+from app.modules.auth.dependencies import CurrentBusinessId, require_permission
 from app.modules.payments.dependencies import PaymentServiceDep
 from app.modules.payments.schemas import (
     PaymentInitialize,
@@ -18,7 +19,12 @@ from app.shared.response import success_response
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
-@router.post("/", response_model=None, status_code=201)
+@router.post(
+    "/",
+    response_model=None,
+    status_code=201,
+    dependencies=[Depends(require_permission(Permission.PAYMENTS_INITIALIZE))],
+)
 async def initialize_payment(
     payload: PaymentInitialize,
     business_id: CurrentBusinessId,
@@ -32,7 +38,9 @@ async def initialize_payment(
     )
 
 
-@router.get("/verify/{tx_ref}", response_model=None)
+@router.get(
+    "/verify/{tx_ref}", response_model=None, dependencies=[Depends(require_permission(Permission.PAYMENTS_VERIFY))]
+)
 async def verify_payment(
     tx_ref: str,
     payment_service: PaymentServiceDep,

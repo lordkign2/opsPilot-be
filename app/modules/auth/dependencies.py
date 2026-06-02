@@ -12,11 +12,12 @@ from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 import redis.asyncio as aioredis
-from fastapi import Depends
+from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenError, UnauthorizedError
+from app.core.permissions import Permission, get_role_permissions
 from app.db.redis import get_redis
 from app.db.session import get_db
 from app.modules.auth.models import User, UserRole
@@ -106,3 +107,64 @@ async def get_current_business_id(
 
 
 CurrentBusinessId = Annotated[uuid.UUID, Depends(get_current_business_id)]
+
+
+# ── Permission-Based Access ──────────────────────────────
+
+
+def require_permission(*permissions: Permission) -> Callable[..., Awaitable[User]]:
+    """
+    Dependency factory that enforces fine-grained action-scoped permissions.
+
+    Checks the caller's role against the static role→permissions matrix.
+    No extra DB roundtrip — permissions are resolved from the role in-memory.
+
+    Usage::
+
+        @router.get("/analytics", dependencies=[Depends(require_permission(Permission.ANALYTICS_READ))])
+        async def get_analytics(...): ...
+    """
+
+    async def permission_checker(
+        user: User = Depends(get_current_active_user),
+    ) -> User:
+        granted = get_role_permissions(user.role.value)
+        for perm in permissions:
+            if perm not in granted:
+                raise ForbiddenError(f"Permission denied: '{perm.value}' is required for this action.")
+        return user
+
+    return permission_checker
+
+
+# ── Dual-Auth Principal (JWT + API Key) ────────────────────────
+
+
+async def get_current_principal(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> User:
+    """
+    Resolve the current authenticated principal from either:
+    1. ``Authorization: Bearer <jwt>`` header (standard user session)
+    2. ``X-API-Key: opk_...`` header (server-to-server API key)
+
+    Raises UnauthorizedError if neither credential is provided or valid.
+    """
+    # Try JWT Bearer first
+    if credentials:
+        auth_service = AuthService(db=db, redis=redis)
+        return await auth_service.get_current_user(credentials.credentials)
+
+    # Fall back to API key authentication
+    if x_api_key:
+        from app.modules.api_keys.dependencies import authenticate_api_key
+
+        return await authenticate_api_key(api_key=x_api_key, db=db)
+
+    raise UnauthorizedError("Authentication required: provide a Bearer token or X-API-Key.")
+
+
+CurrentPrincipal = Annotated[User, Depends(get_current_principal)]

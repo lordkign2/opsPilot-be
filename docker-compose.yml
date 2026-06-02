@@ -15,6 +15,8 @@ services:
       - DATABASE_URL=postgresql+asyncpg://opspilot:opspilot_secret@postgres:5432/opspilot_db
       - REDIS_URL=redis://redis:6379/0
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-CHANGE_ME_TO_A_RANDOM_64_CHAR_STRING}
+      - PROMETHEUS_ENABLED=true
+      - SENTRY_DSN=${SENTRY_DSN:-}
     volumes:
       - .:/app
     depends_on:
@@ -27,7 +29,7 @@ services:
 
   # ── PostgreSQL ───────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: opspilot-postgres
     restart: unless-stopped
     ports:
@@ -63,10 +65,53 @@ services:
     networks:
       - opspilot-network
 
+  # ── Prometheus (Phase 7) ─────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: opspilot-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    depends_on:
+      - backend
+    networks:
+      - opspilot-network
+
+  # ── Grafana (Phase 7) ────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.3
+    container_name: opspilot-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-opspilot}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - opspilot-network
+
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   opspilot-network:
     driver: bridge
+

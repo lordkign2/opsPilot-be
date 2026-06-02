@@ -197,7 +197,8 @@ async def test_ai_mock_fallback_endpoints(client: AsyncClient, setup_test_data: 
     chat_payload = {"message": "Give me a summary of my store performance."}
     response = await client.post("/api/v1/ai/chat", json=chat_payload, headers=headers)
     assert response.status_code == 200
-    assert "reply" in response.json()["data"]
+    assert response.headers.get("x-vercel-ai-data-stream") == "v1"
+    assert "mock fallback response" in response.text
 
     # 2. Summary Endpoint
     summary_payload = {"timeframe": "weekly"}

@@ -60,6 +60,7 @@ OpsPilot enforces strict code quality using Ruff, Black, MyPy, and Pre-commit.
 | `poetry run pre-commit install` | Install git hooks to run linters automatically before every commit. |
 | `poetry run pre-commit run --all-files` | Manually run all pre-commit hooks against all files. |
 | `poetry run ruff check .` | Run the Ruff linter to find syntax, import, and logic errors. |
+| `venv\Scripts\ruff check --fix; venv\Scripts\ruff format` | Run the Ruff linter to find syntax, import, and logic errors and automatically fix fixable linting errors. |
 | `poetry run ruff check --fix .` | Automatically fix fixable linting errors. |
 | `poetry run ruff format .` | Format the entire codebase to comply with standard Python style. |
 | `poetry run mypy app/` | Run static type checking across the `app/` directory. |

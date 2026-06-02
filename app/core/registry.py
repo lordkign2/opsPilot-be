@@ -88,6 +88,13 @@ def register_routers(app: FastAPI) -> None:
 
     api_v1_router.include_router(admin_router)
 
+    # ── Security & Auditing (Phase 8) ──────────────────────────
+    from app.modules.api_keys.routes import router as api_keys_router
+    from app.modules.audit.routes import router as audit_router
+
+    api_v1_router.include_router(api_keys_router)
+    api_v1_router.include_router(audit_router)
+
     # ── Mount the v1 router onto the app ─────────────────────
     app.include_router(api_v1_router)
 

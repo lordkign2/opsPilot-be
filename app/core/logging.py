@@ -11,6 +11,7 @@ import os
 import sys
 from contextvars import ContextVar
 from logging.handlers import RotatingFileHandler
+from uuid import uuid4
 
 from app.core.config import get_settings
 
@@ -18,6 +19,7 @@ from app.core.config import get_settings
 request_id_ctx: ContextVar[str | None] = ContextVar("request_id", default=None)
 business_id_ctx: ContextVar[str | None] = ContextVar("business_id", default=None)
 user_id_ctx: ContextVar[str | None] = ContextVar("user_id", default=None)
+trace_id_ctx: ContextVar[str | None] = ContextVar("trace_id", default=None)
 
 
 class StructuredFormatter(logging.Formatter):
@@ -33,6 +35,7 @@ class StructuredFormatter(logging.Formatter):
         record.request_id = request_id_ctx.get() or "-"
         record.business_id = business_id_ctx.get() or "-"
         record.user_id = user_id_ctx.get() or "-"
+        record.trace_id = trace_id_ctx.get() or "-"
         record.module_name = record.name
 
         settings = get_settings()
@@ -47,6 +50,7 @@ class StructuredFormatter(logging.Formatter):
                 "request_id": getattr(record, "request_id", "-"),
                 "business_id": getattr(record, "business_id", "-"),
                 "user_id": getattr(record, "user_id", "-"),
+                "trace_id": getattr(record, "trace_id", "-"),
             }
             if record.exc_info and record.exc_info[1]:
                 log_data["exception"] = self.formatException(record.exc_info)
@@ -77,6 +81,7 @@ class StructuredFormatter(logging.Formatter):
                 "request_id",
                 "business_id",
                 "user_id",
+                "trace_id",
                 "module_name",
             }
             for key, val in record.__dict__.items():
@@ -133,3 +138,25 @@ def setup_logging() -> None:
 def get_logger(name: str) -> logging.Logger:
     """Get a named logger. Use module __name__ as the name."""
     return logging.getLogger(f"opspilot.{name}")
+
+
+def get_trace_id() -> str:
+    """
+    Return the current trace ID, or generate and bind a new one.
+
+    Call this in background tasks and async workers to ensure
+    every log line within the task carries a stable trace_id.
+
+    Usage::
+
+        from app.core.logging import get_trace_id, trace_id_ctx
+
+        async def my_background_task() -> None:
+            trace_id_ctx.set(get_trace_id())
+            logger.info("task started")
+    """
+    tid = trace_id_ctx.get()
+    if tid is None:
+        tid = str(uuid4())
+        trace_id_ctx.set(tid)
+    return tid

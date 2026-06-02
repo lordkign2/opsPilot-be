@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from app.core.metrics import event_bus_emissions_total, event_bus_handler_failures_total
+
 logger = logging.getLogger("opspilot.events")
 
 # Type alias for async event handlers
@@ -98,6 +100,9 @@ class EventBus:
             logger.debug("No handlers for event '%s'", event_type)
             return
 
+        # Track every emission regardless of handler count
+        event_bus_emissions_total.labels(event_type=event_type).inc()
+
         logger.info(
             "Emitting '%s' to %d handler(s) [id=%s]",
             event_type,
@@ -127,6 +132,7 @@ class EventBus:
 
         for i, result in enumerate(results):
             if isinstance(result, Exception):
+                event_bus_handler_failures_total.labels(event_type=event_type).inc()
                 logger.error(
                     "Handler %s failed for event '%s': %s",
                     handlers[i].__name__,

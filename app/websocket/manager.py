@@ -8,6 +8,7 @@ import logging
 from collections import defaultdict
 from typing import Any
 
+from app.core.metrics import active_ws_connections
 from app.websocket.connection import ActiveConnection
 
 logger = logging.getLogger("opspilot.websocket.manager")
@@ -32,6 +33,7 @@ class WebSocketManager:
             "status": "online",
             "current_view": None,
         }
+        active_ws_connections.labels(business_id=b_id).inc()
         logger.info("User %s connected in business %s", u_id, b_id)
 
     def disconnect(self, connection: ActiveConnection) -> None:
@@ -42,6 +44,7 @@ class WebSocketManager:
             self._connections[b_id].remove(connection)
         if u_id in self._presence[b_id]:
             del self._presence[b_id][u_id]
+        active_ws_connections.labels(business_id=b_id).dec()
         logger.info("User %s disconnected from business %s", u_id, b_id)
 
     def update_presence(self, business_id: str, user_id: str, status: str, current_view: str | None = None) -> None:
