@@ -121,7 +121,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await stop_broadcaster()
     await engine.dispose()
-    await redis_client.close()
+    try:
+        await redis_client.aclose()
+    except RuntimeError:
+        pass
     logger.info("Shutdown complete.")
 
 
