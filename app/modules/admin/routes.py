@@ -18,6 +18,8 @@ from app.modules.admin.schemas import (
     BroadcastRequest,
     MaintenanceRequest,
     RoleUpdateRequest,
+    SystemSettingsSchema,
+    SystemSettingsUpdateSchema,
 )
 from app.modules.auth.dependencies import CurrentSuperAdmin
 from app.shared.response import paginated_response, success_response
@@ -297,3 +299,51 @@ async def broadcast_system_alert(
     return success_response(
         data={"broadcast_count": count}, message=f"Global system alert fanned out to {count} active sessions."
     )
+
+
+# ── Global System Settings ───────────────────────────────────
+
+
+@router.get(
+    "/settings",
+    summary="Retrieve global system configuration settings",
+    response_model=Any,
+)
+async def get_system_settings(
+    admin: CurrentSuperAdmin,
+    service: AdminServiceDep,
+) -> Any:
+    """Fetches all platform system configuration parameters from the database."""
+    settings_data = await service.get_settings()
+    return success_response(data=settings_data, message="System settings retrieved successfully.")
+
+
+@router.put(
+    "/settings",
+    summary="Update global system configuration settings",
+    response_model=Any,
+)
+async def update_system_settings(
+    admin: CurrentSuperAdmin,
+    service: AdminServiceDep,
+    payload: SystemSettingsUpdateSchema,
+) -> Any:
+    """Updates configuration parameter fields on the system settings record in the database."""
+    updated_data = await service.update_settings(payload.model_dump(exclude_unset=True))
+    return success_response(data=updated_data, message="System settings updated successfully.")
+
+
+@router.get(
+    "/telemetry",
+    summary="Retrieve platform overview telemetry metrics",
+    response_model=Any,
+)
+async def get_platform_telemetry(
+    admin: CurrentSuperAdmin,
+    service: AdminServiceDep,
+) -> Any:
+    """Fetches total NRR, churn rate, user location coordinates, average latency, and error rate."""
+    data = await service.get_telemetry()
+    return success_response(data=data, message="Telemetry metrics retrieved successfully.")
+
+

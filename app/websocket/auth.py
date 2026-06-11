@@ -10,7 +10,7 @@ from app.core.exceptions import OpsPilotException
 from app.core.logging import get_logger
 from app.db.redis import redis_client
 from app.db.session import async_session_factory
-from app.modules.auth.models import User
+from app.modules.auth.models import User, UserRole
 from app.modules.auth.service import AuthService
 
 logger = get_logger("websocket.auth")
@@ -49,7 +49,7 @@ async def authenticate_websocket(websocket: WebSocket, token: str | None = None)
                 )
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Inactive account.")
                 return None
-            if not user.business_id:
+            if not user.business_id and user.role != UserRole.SUPER_ADMIN:
                 logger.warning(
                     "WebSocket handshake rejected for user %s from IP %s: No assigned business.",
                     user.id,

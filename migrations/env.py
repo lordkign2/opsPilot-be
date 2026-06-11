@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
 from app.db.base import Base
+from app.modules.admin.models import SystemSettings  # noqa: F401
 from app.modules.ai.models import AILog, AIMemory, PromptTemplate  # noqa: F401
 from app.modules.audit.models import AuditLog  # noqa: F401
 

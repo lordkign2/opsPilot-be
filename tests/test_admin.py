@@ -265,3 +265,46 @@ async def test_soft_delete_and_hard_purge(client: AsyncClient, setup_admin_data:
     stmt = select(User).where(User.id == merchant.id)
     res = await db_session.execute(stmt)
     assert res.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_admin_system_settings_endpoints(client: AsyncClient, setup_admin_data: dict):
+    """Test retrieval and persistence of system settings configurations."""
+    merchant_token = setup_admin_data["merchant_token"]
+    admin_token = setup_admin_data["admin_token"]
+
+    # 1. Standard merchant is blocked
+    response = await client.get("/api/v1/admin/settings", headers={"Authorization": f"Bearer {merchant_token}"})
+    assert response.status_code == 403
+
+    # 2. Super admin retrieves defaults
+    response = await client.get("/api/v1/admin/settings", headers={"Authorization": f"Bearer {admin_token}"})
+    assert response.status_code == 200
+    res_data = response.json()["data"]
+    assert res_data["platform_name"] == "OpsPilot Core"
+    assert res_data["global_mfa_requirement"] is False
+
+    # 3. Super admin updates settings
+    update_payload = {
+        "platform_name": "OpsPilot Custom Test Core",
+        "global_mfa_requirement": True,
+        "base_tax_rate": 8.5,
+    }
+    response = await client.put(
+        "/api/v1/admin/settings",
+        json=update_payload,
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert response.status_code == 200
+    res_data = response.json()["data"]
+    assert res_data["platform_name"] == "OpsPilot Custom Test Core"
+    assert res_data["global_mfa_requirement"] is True
+    assert res_data["base_tax_rate"] == 8.5
+
+    # 4. Fetch settings again and check persistence
+    response = await client.get("/api/v1/admin/settings", headers={"Authorization": f"Bearer {admin_token}"})
+    assert response.status_code == 200
+    res_data = response.json()["data"]
+    assert res_data["platform_name"] == "OpsPilot Custom Test Core"
+    assert res_data["global_mfa_requirement"] is True
+

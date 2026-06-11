@@ -9,6 +9,7 @@ import uuid
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.admin.models import SystemSettings
 from app.modules.auth.models import User
 from app.modules.businesses.models import Business
 from app.modules.workflows.models import Workflow
@@ -62,3 +63,27 @@ class AdminRepository:
             select(Workflow).order_by(Workflow.created_at.desc()).limit(limit).offset(offset)
         )
         return list(result.scalars().all()), total
+
+    # ── System Settings ──────────────────────────────────────
+
+    async def get_settings(self) -> SystemSettings:
+        """Retrieve system settings, seeding it with defaults if empty."""
+        result = await self.db.execute(select(SystemSettings))
+        settings = result.scalars().first()
+        if not settings:
+            settings = SystemSettings()
+            self.db.add(settings)
+            await self.db.commit()
+            await self.db.refresh(settings)
+        return settings
+
+    async def update_settings(self, data: dict) -> SystemSettings:
+        """Update system settings fields."""
+        settings = await self.get_settings()
+        for key, val in data.items():
+            if val is not None:
+                setattr(settings, key, val)
+        await self.db.commit()
+        await self.db.refresh(settings)
+        return settings
+
